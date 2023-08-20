@@ -1,0 +1,121 @@
+---
+title: "Prediction asignment writeup"
+author: "Audrey Clausell"
+date: "2023-08-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Summary 
+
+In this project, the goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants in order to predict how well they did activity. 
+
+## loading packages 
+
+```{r}
+library(rlang)
+library(tibble)
+library(vctrs)
+library(dplyr)
+library(recipes)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(randomForest)
+library(corrplot)
+library(gbm)
+```
+
+## Loading  data 
+
+```{r}
+train<- read.csv("pml-training.csv",sep=",",stringsAsFactors = TRUE)
+test <- read.csv("pml-testing.csv",sep=",",stringsAsFactors = TRUE)
+dim(train)
+```
+
+The training data has 19622 rows (samples) and 160 columns (variables). "classe" has 5 levels (A,B,C,D,E) 
+
+## Cleaning data 
+
+First, let's clean NAs
+```{r}
+nacol <- colnames(train)[colSums(is.na(train)) > 0]
+train<- train[, !(colnames(test) %in% nacol)]
+test <- test[, !(colnames(test) %in% nacol)]
+dim(train)
+```
+
+Then, let's clean the variable with low variance. In fact, if they don't vary, they have small impact. 
+```{r}
+remove <- nearZeroVar(train)
+train <- train[, -remove]
+test  <- test[, -remove]
+dim(train)
+```
+
+Finally, the six 1st columns are unuseful 
+```{r}
+train <- train[, -c(1:6)]
+test <- test[, -c(1:6)]
+dim(train)
+```
+
+So, we have 53 variables, and the last one is classe (the one we want to predict)
+
+## Exploratory analysis of correlations 
+
+```{r}
+cor_mat <- cor(train[, -53])
+corrplot(cor_mat, order = "FPC", method = "color", type = "upper", 
+         tl.cex = 0.8, tl.col = rgb(0, 0, 0))
+```
+```{r}
+highlyCorrelated = findCorrelation(cor_mat, cutoff=0.75)
+names(train)[highlyCorrelated]
+```
+
+We can so eliminate varibles with high correlation because they give redundant information. 
+
+## Model building 
+
+After trying different models (not showed here to limit the length of the report), I chose Generalized Boosted Model. In fact, prediction with trees led to low accuracy. 
+
+First, let's split 80-20 the train data. 
+```{r}
+set.seed(3333)
+letsplit <- createDataPartition(train$classe, p = 0.8, list = FALSE)
+training <- train[letsplit, ]
+testing<- train[-letsplit, ]
+```
+
+Then, let's build the model 
+```{r}
+GBM <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+modGBM  <- train(classe ~ ., data=training, method = "gbm", trControl = GBM, verbose = FALSE)
+modGBM$finalModel
+```
+```{r}
+print(modGBM)
+```
+
+Finally, let's validate it. 
+```{r}
+predictGBM <- predict(modGBM, newdata=testing)
+cmGBM <- confusionMatrix(predictGBM, testing$classe)
+cmGBM
+```
+
+Accuracy is good. 
+
+## Predicting on "test"
+
+```{r}
+Results <- predict(modGBM, newdata=test)
+Results
+```
